@@ -107,11 +107,8 @@ dotnet run --project TaskManager.UI
 
 ---
 
-## Known Limitations / Next Steps
-
-- Persist to \`%LocalAppData%/TaskManager\` by default (if you aren’t already).  
-- Add input validation UI (\`IDataErrorInfo\` / \`INotifyDataErrorInfo\`) for Title.  
-- Enhance PDF styling (headers, line wrapping, pagination).  
+## Next Steps
+ 
 - Add unit tests to demonstrate testability.
 
 ---
