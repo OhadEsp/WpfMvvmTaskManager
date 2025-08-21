@@ -28,7 +28,7 @@ TaskManager.sln
 │ ├─ Views/MainWindow.xaml, AddEditTask.xaml
 │ ├─ ViewModels/MainViewModel.cs, AddEditTaskViewModel.cs
 │ ├─ App.xaml, App.xaml.cs
-└─ └─ Utils/RelayCommand.cs
+└─└─ Utils/RelayCommand.cs
 ~~~
 
 ## Getting Started
