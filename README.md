@@ -16,3 +16,15 @@ A simple WPF desktop app to manage tasks with add/edit/delete, filtering, and PD
 - **Export**: **QuestPDF** renders a PDF; license set once in a static constructor.
 
 ## Solution Structure
+TaskManager.sln
+├─ TaskManager.Core
+│ ├─ Models/TaskItem.cs
+│ └─ Services/ITaskRepository.cs
+├─ TaskManager.Infrastructure
+│ ├─ Repositories/FileTaskRepository.cs
+│ └─ Export/PdfExporter.cs
+└─ TaskManager.UI
+├─ Views/MainWindow.xaml, AddEditTask.xaml
+├─ ViewModels/MainViewModel.cs, AddEditTaskViewModel.cs
+├─ App.xaml, App.xaml.cs
+└─ Utils/RelayCommand.cs
