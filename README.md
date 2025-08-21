@@ -28,3 +28,19 @@ TaskManager.sln
 ├─ ViewModels/MainViewModel.cs, AddEditTaskViewModel.cs
 ├─ App.xaml, App.xaml.cs
 └─ Utils/RelayCommand.cs
+
+## Getting Started
+
+### Prerequisites
+- .NET SDK 8 (or 6/7 if your `.csproj` targets that)
+- Windows (WPF)
+
+### Build & Run
+```bash
+git clone https://github.com/<you>/<repo>.git
+cd <repo>
+dotnet restore
+dotnet build
+# From Visual Studio: press F5
+# Or run:
+# dotnet run --project TaskManager.UI
