@@ -1,37 +1,38 @@
-﻿using MvvmDialogs;
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
-using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
+using MvvmDialogs;
+using MvvmDialogs.FrameworkDialogs;
+using MvvmDialogs.FrameworkDialogs.MessageBox;
+using MvvmDialogs.FrameworkDialogs.SaveFile;
 using TaskManager.Core.Models;
 using TaskManager.Core.Services;
-using TaskManager.Infrastructure.Export;
 using TaskManager.UI.Utils;
 using TaskManager.UI.Views;
 
 namespace TaskManager.UI.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged, IModalDialogViewModel
+    public class MainViewModel : INotifyPropertyChanged
     {
-        private readonly IDialogService _dialogService;
         private readonly ITaskRepository _repository;
-        private readonly PdfExporter _pdfExporter;
+        private readonly IDialogService _dialogService;
+        private readonly IPdfExporter _pdfExporter;
 
-        public ObservableCollection<TaskItem> Tasks { get; set; }
-        public ObservableCollection<TaskItem> FilteredTasks { get; set; }
-        public ObservableCollection<string> StatusFilters { get; }
-        private string _selectedFilter;
+        public ObservableCollection<TaskItem> Tasks { get; }
+        public ICollectionView TasksView { get; }
+        public ObservableCollection<string> StatusFilters { get; } = new() { "All", "Completed", "Not Completed" };
+
+        private string _selectedFilter = "All";
         public string SelectedFilter
         {
             get => _selectedFilter;
             set
             {
-                if (_selectedFilter != value)
-                {
-                    _selectedFilter = value;
-                    OnPropertyChanged(nameof(SelectedFilter));
-                    ApplyFilter();
-                }
+                if (_selectedFilter == value) return;
+                _selectedFilter = value;
+                OnPropertyChanged(nameof(SelectedFilter));
+                TasksView.Refresh();
             }
         }
 
@@ -48,52 +49,43 @@ namespace TaskManager.UI.ViewModels
             }
         }
 
-        public bool? DialogResult { get; private set; }
-
         public ICommand AddCommand { get; }
         public ICommand EditCommand { get; }
         public ICommand DeleteCommand { get; }
         public ICommand ExportCommand { get; }
 
-        public MainViewModel(ITaskRepository repository, IDialogService dialogService)
+        public MainViewModel(ITaskRepository repository, IDialogService dialogService, IPdfExporter pdfExporter)
         {
             _repository = repository;
             _dialogService = dialogService;
-            _pdfExporter = new PdfExporter();
+            _pdfExporter = pdfExporter;
 
             Tasks = new ObservableCollection<TaskItem>(_repository.GetAll());
-            FilteredTasks = new ObservableCollection<TaskItem>(Tasks);
-
-            StatusFilters = new ObservableCollection<string> { "All", "Completed", "Not Completed" };
-            SelectedFilter = "All";
+            TasksView = CollectionViewSource.GetDefaultView(Tasks);
+            TasksView.Filter = FilterTask;
 
             AddCommand = new RelayCommand(OnAdd);
             EditCommand = new RelayCommand(OnEdit, () => SelectedTask != null);
             DeleteCommand = new RelayCommand(OnDelete, () => SelectedTask != null);
             ExportCommand = new RelayCommand(OnExport);
-
-            Tasks.CollectionChanged += (s, e) => ApplyFilter();
         }
 
-        private void ApplyFilter()
+        private bool FilterTask(object obj)
         {
-            FilteredTasks.Clear();
-            var filtered = SelectedFilter switch
+            if (obj is not TaskItem t) return false;
+            return SelectedFilter switch
             {
-                "Completed" => Tasks.Where(t => t.IsCompleted),
-                "Not Completed" => Tasks.Where(t => !t.IsCompleted),
-                _ => Tasks
+                "Completed" => t.IsCompleted,
+                "Not Completed" => !t.IsCompleted,
+                _ => true
             };
-
-            foreach (var task in filtered)
-                FilteredTasks.Add(task);
         }
 
         private void OnAdd()
         {
             var vm = new AddEditTaskViewModel();
-            bool? success = _dialogService.ShowDialog(this, vm);
-            if (success == true)
+            bool? ok = _dialogService.ShowDialog(this, vm);
+            if (ok == true)
             {
                 var newTask = vm.Task;
                 _repository.Add(newTask);
@@ -105,21 +97,26 @@ namespace TaskManager.UI.ViewModels
         {
             if (SelectedTask == null) return;
             var vm = new AddEditTaskViewModel(SelectedTask);
-            bool? success = _dialogService.ShowDialog(this, vm);
-            if (success == true)
+            bool? ok = _dialogService.ShowDialog(this, vm);
+            if (ok == true)
             {
                 _repository.Update(vm.Task);
                 var idx = Tasks.IndexOf(SelectedTask);
-                if (idx >= 0)
-                    Tasks[idx] = vm.Task;
-                ApplyFilter();
+                if (idx >= 0) Tasks[idx] = vm.Task;
+                TasksView.Refresh();
             }
         }
 
         private void OnDelete()
         {
-            if (SelectedTask == null) return;
-            if (MessageBox.Show("Are you sure you want to delete this task?", "Confirm Delete", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+            var answer = _dialogService.ShowMessageBox(this, new MessageBoxSettings
+            {
+                MessageBoxText = "Are you sure you want to delete this task?",
+                Caption = "Confirm Delete",
+                Button = System.Windows.MessageBoxButton.YesNo,
+                Icon = System.Windows.MessageBoxImage.Question
+            });
+            if (answer == System.Windows.MessageBoxResult.Yes && SelectedTask != null)
             {
                 _repository.Delete(SelectedTask.Id);
                 Tasks.Remove(SelectedTask);
@@ -128,29 +125,46 @@ namespace TaskManager.UI.ViewModels
 
         private void OnExport()
         {
-            var dialog = new Microsoft.Win32.SaveFileDialog
+            var settings = new SaveFileDialogSettings
             {
                 Filter = "PDF files (*.pdf)|*.pdf",
-                FileName = "Tasks.pdf"
+                FileName = "Tasks.pdf",
+                AddExtension = true,
+                DefaultExt = ".pdf",
+                OverwritePrompt = true
             };
-            if (dialog.ShowDialog() == true)
+
+            bool? save = _dialogService.ShowSaveFileDialog(this, settings);
+            if (save == true)
             {
+                var visible = TasksView.Cast<TaskItem>().ToList();
+
                 try
                 {
-                    _pdfExporter.ExportTasks(FilteredTasks, dialog.FileName);
-                    MessageBox.Show("Export successful!", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+                    _pdfExporter.ExportTasks(visible, settings.FileName); // <-- read path from settings
+                    _dialogService.ShowMessageBox(this, new MessageBoxSettings
+                    {
+                        MessageBoxText = "Export successful!",
+                        Caption = "Export",
+                        Button = System.Windows.MessageBoxButton.OK,
+                        Icon = System.Windows.MessageBoxImage.Information
+                    });
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _dialogService.ShowMessageBox(this, new MessageBoxSettings
+                    {
+                        MessageBoxText = $"Export failed: {ex.Message}",
+                        Caption = "Error",
+                        Button = System.Windows.MessageBoxButton.OK,
+                        Icon = System.Windows.MessageBoxImage.Error
+                    });
                 }
             }
         }
 
-        #region INotifyPropertyChanged
+
         public event PropertyChangedEventHandler PropertyChanged;
-        protected void OnPropertyChanged(string propName) =>
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propName));
-        #endregion
+        private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }
