@@ -24,11 +24,11 @@ TaskManager.sln
 ├─ TaskManager.Infrastructure
 │ ├─ Repositories/FileTaskRepository.cs
 │ └─ Export/PdfExporter.cs
-└─ TaskManager.UI
+├─ TaskManager.UI
 │ ├─ Views/MainWindow.xaml, AddEditTask.xaml
 │ ├─ ViewModels/MainViewModel.cs, AddEditTaskViewModel.cs
 │ ├─ App.xaml, App.xaml.cs
-│ └─ Utils/RelayCommand.cs
+└─ └─ Utils/RelayCommand.cs
 ~~~
 
 ## Getting Started
