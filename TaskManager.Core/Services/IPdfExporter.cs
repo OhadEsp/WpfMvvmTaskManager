@@ -5,6 +5,6 @@ namespace TaskManager.Core.Services
 {
     public interface IPdfExporter
     {
-        void ExportTasks(IEnumerable<TaskItem> tasks, string filePath);
+        Task ExportTasksAsync(IEnumerable<TaskItem> tasks, string filePath, CancellationToken ct = default);
     }
 }

@@ -1,12 +1,15 @@
-﻿using TaskManager.Core.Models;
+﻿using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using TaskManager.Core.Models;
 
 namespace TaskManager.Core.Services
 {
     public interface ITaskRepository
     {
-        IEnumerable<TaskItem> GetAll();
-        void Add(TaskItem task);
-        void Update(TaskItem task);
-        void Delete(Guid taskId);
+        Task<IReadOnlyList<TaskItem>> GetAllAsync();
+        Task AddAsync(TaskItem task);
+        Task UpdateAsync(TaskItem task);
+        Task DeleteAsync(Guid taskId);
     }
 }

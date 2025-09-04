@@ -1,15 +1,16 @@
-﻿using System.Collections.ObjectModel;
+﻿using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Data;
 using System.Windows.Input;
 using MvvmDialogs;
-using MvvmDialogs.FrameworkDialogs;
 using MvvmDialogs.FrameworkDialogs.MessageBox;
 using MvvmDialogs.FrameworkDialogs.SaveFile;
 using TaskManager.Core.Models;
 using TaskManager.Core.Services;
 using TaskManager.UI.Utils;
-using TaskManager.UI.Views;
 
 namespace TaskManager.UI.ViewModels
 {
@@ -32,7 +33,7 @@ namespace TaskManager.UI.ViewModels
                 if (_selectedFilter == value) return;
                 _selectedFilter = value;
                 OnPropertyChanged(nameof(SelectedFilter));
-                TasksView.Refresh();
+                TasksView?.Refresh();
             }
         }
 
@@ -44,8 +45,20 @@ namespace TaskManager.UI.ViewModels
             {
                 _selectedTask = value;
                 OnPropertyChanged(nameof(SelectedTask));
-                (EditCommand as RelayCommand)?.RaiseCanExecuteChanged();
-                (DeleteCommand as RelayCommand)?.RaiseCanExecuteChanged();
+                RaiseCmds();
+            }
+        }
+
+        private bool _isBusy;
+        public bool IsBusy
+        {
+            get => _isBusy;
+            private set
+            {
+                if (_isBusy == value) return;
+                _isBusy = value;
+                OnPropertyChanged(nameof(IsBusy));
+                RaiseCmds();
             }
         }
 
@@ -60,14 +73,17 @@ namespace TaskManager.UI.ViewModels
             _dialogService = dialogService;
             _pdfExporter = pdfExporter;
 
-            Tasks = new ObservableCollection<TaskItem>(_repository.GetAll());
+            Tasks = new ObservableCollection<TaskItem>();
             TasksView = CollectionViewSource.GetDefaultView(Tasks);
             TasksView.Filter = FilterTask;
 
-            AddCommand = new RelayCommand(OnAdd);
-            EditCommand = new RelayCommand(OnEdit, () => SelectedTask != null);
-            DeleteCommand = new RelayCommand(OnDelete, () => SelectedTask != null);
-            ExportCommand = new RelayCommand(OnExport);
+            AddCommand = new AsyncRelayCommand(OnAddAsync, () => !IsBusy);
+            EditCommand = new AsyncRelayCommand(OnEditAsync, () => SelectedTask != null && !IsBusy);
+            DeleteCommand = new AsyncRelayCommand(OnDeleteAsync, () => SelectedTask != null && !IsBusy);
+            ExportCommand = new AsyncRelayCommand(OnExportAsync, () => !IsBusy);
+
+            // Fire-and-forget initial load (remains on UI ctx after awaits)
+            _ = LoadAsync();
         }
 
         private bool FilterTask(object obj)
@@ -81,49 +97,63 @@ namespace TaskManager.UI.ViewModels
             };
         }
 
-        private void OnAdd()
+        private async Task LoadAsync()
+        {
+            try
+            {
+                IsBusy = true;
+                var items = await _repository.GetAllAsync();
+                Tasks.Clear();
+                foreach (var t in items) Tasks.Add(t);
+                TasksView.Refresh();
+            }
+            finally { IsBusy = false; }
+        }
+
+        private async Task OnAddAsync()
         {
             var vm = new AddEditTaskViewModel();
             bool? ok = _dialogService.ShowDialog(this, vm);
             if (ok == true)
             {
-                var newTask = vm.Task;
-                _repository.Add(newTask);
-                Tasks.Add(newTask);
+                await _repository.AddAsync(vm.Task);
+                Tasks.Add(vm.Task);
+                TasksView.Refresh();
             }
         }
 
-        private void OnEdit()
+        private async Task OnEditAsync()
         {
             if (SelectedTask == null) return;
             var vm = new AddEditTaskViewModel(SelectedTask);
             bool? ok = _dialogService.ShowDialog(this, vm);
             if (ok == true)
             {
-                _repository.Update(vm.Task);
+                await _repository.UpdateAsync(vm.Task);
                 var idx = Tasks.IndexOf(SelectedTask);
                 if (idx >= 0) Tasks[idx] = vm.Task;
                 TasksView.Refresh();
             }
         }
 
-        private void OnDelete()
+        private async Task OnDeleteAsync()
         {
-            var answer = _dialogService.ShowMessageBox(this, new MessageBoxSettings
+            var result = _dialogService.ShowMessageBox(this, new MessageBoxSettings
             {
                 MessageBoxText = "Are you sure you want to delete this task?",
                 Caption = "Confirm Delete",
                 Button = System.Windows.MessageBoxButton.YesNo,
                 Icon = System.Windows.MessageBoxImage.Question
             });
-            if (answer == System.Windows.MessageBoxResult.Yes && SelectedTask != null)
+
+            if (result == System.Windows.MessageBoxResult.Yes && SelectedTask != null)
             {
-                _repository.Delete(SelectedTask.Id);
+                await _repository.DeleteAsync(SelectedTask.Id);
                 Tasks.Remove(SelectedTask);
             }
         }
 
-        private void OnExport()
+        private async Task OnExportAsync()
         {
             var settings = new SaveFileDialogSettings
             {
@@ -134,14 +164,14 @@ namespace TaskManager.UI.ViewModels
                 OverwritePrompt = true
             };
 
-            bool? save = _dialogService.ShowSaveFileDialog(this, settings);
-            if (save == true)
+            bool? ok = _dialogService.ShowSaveFileDialog(this, settings);
+            if (ok == true)
             {
-                var visible = TasksView.Cast<TaskItem>().ToList();
-
                 try
                 {
-                    _pdfExporter.ExportTasks(visible, settings.FileName); // <-- read path from settings
+                    IsBusy = true;
+                    var visible = TasksView.Cast<TaskItem>().ToList();
+                    await _pdfExporter.ExportTasksAsync(visible, settings.FileName);
                     _dialogService.ShowMessageBox(this, new MessageBoxSettings
                     {
                         MessageBoxText = "Export successful!",
@@ -160,11 +190,20 @@ namespace TaskManager.UI.ViewModels
                         Icon = System.Windows.MessageBoxImage.Error
                     });
                 }
+                finally { IsBusy = false; }
             }
         }
 
+        private void RaiseCmds()
+        {
+            (AddCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (EditCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (DeleteCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+            (ExportCommand as AsyncRelayCommand)?.RaiseCanExecuteChanged();
+        }
 
         public event PropertyChangedEventHandler PropertyChanged;
-        private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        protected void OnPropertyChanged(string name) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 }
